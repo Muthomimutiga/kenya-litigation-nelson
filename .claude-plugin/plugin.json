@@ -1,0 +1,10 @@
+{
+  "name": "kenya-litigation",
+  "version": "0.1.0",
+  "description": "Full litigation workflow automation for Kenyan practitioners — post-hearing processing, document drafting, service, filing guidance, and daily briefings.",
+  "author": {
+    "name": "Robin Muthomi Mutiga",
+    "organization": "Robin Advisory Group"
+  },
+  "keywords": ["kenya", "litigation", "court", "legal", "efiling", "airtable"]
+}
