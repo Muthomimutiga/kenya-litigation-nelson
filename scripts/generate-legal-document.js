@@ -9,7 +9,7 @@
 
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  Footer, AlignmentType, BorderStyle, WidthType, VerticalAlign,
+  Header, Footer, AlignmentType, BorderStyle, WidthType, VerticalAlign,
   UnderlineType, LineRuleType, ShadingType, PageNumber, TabStopType, LeaderType, PageBreak,
   ImageRun, TextWrappingType, HorizontalPositionRelativeFrom, VerticalPositionRelativeFrom
 } = require('docx');
@@ -226,17 +226,10 @@ function buildLetterhead() {
     spacing: { before: 120, after: 0 }
   });
 
-  // ── Image mode: full letterhead header PNG ────────────────────────────────
+  // ── Image mode: header is rendered edge-to-edge in section header (see Header obj below)
+  // Body returns empty so no inline letterhead duplicates the section header image.
   if (LH_MODE === 'image' && LH_HEADER_IMG) {
-    return [
-      new Paragraph({
-        children: [
-          new ImageRun({ data: LH_HEADER_IMG, transformation: { width: 600, height: LH_HEADER_H }, type: 'png' })
-        ],
-        spacing: { before: 0, after: 0 }
-      }),
-      addressLine
-    ];
+    return [];
   }
 
   // ── Logo mode: logo left + firm name text right ───────────────────────────
@@ -331,14 +324,58 @@ function buildLetterhead() {
   return [headerTable, goldLine, addressLine];
 }
 
+// ─── Category A — Section header (image mode only, edge-to-edge) ──────────────
+// Returns a Word Section Header object containing a floating image anchored
+// to the top of the page, full A4 width.
+function buildLetterheadSectionHeader() {
+  if (!(LH_MODE === 'image' && LH_HEADER_IMG)) return null;
+  return new Header({
+    children: [
+      new Paragraph({
+        children: [
+          new ImageRun({
+            data: LH_HEADER_IMG,
+            transformation: { width: 794, height: LH_HEADER_H },
+            type: 'png',
+            floating: {
+              horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, offset: 0 },
+              verticalPosition:   { relative: VerticalPositionRelativeFrom.PAGE,   offset: 0 },
+              behindDocument: true,
+              wrap: { type: TextWrappingType.NONE }
+            }
+          })
+        ],
+        spacing: { before: 0, after: 0 }
+      })
+    ]
+  });
+}
+
 // ─── Category A footer ────────────────────────────────────────────────────────
-// Image mode: uploaded footer PNG | Generated/logo mode: text footer from config
+// Image mode: edge-to-edge floating image at bottom of page.
+// Generated/logo mode: text footer with firm name + page number.
 function buildLetterheadFooter() {
   if (LH_MODE === 'image' && LH_FOOTER_IMG) {
+    // A4 height = 11.69" = 10,694,816 EMU; image height in EMU = px * 9525
+    const PAGE_HEIGHT_EMU = 10694816;
+    const footerHeightEMU = LH_FOOTER_H * 9525;
+    const verticalOffset = PAGE_HEIGHT_EMU - footerHeightEMU;
     return new Footer({
       children: [
         new Paragraph({
-          children: [new ImageRun({ data: LH_FOOTER_IMG, transformation: { width: 600, height: LH_FOOTER_H }, type: 'png' })],
+          children: [
+            new ImageRun({
+              data: LH_FOOTER_IMG,
+              transformation: { width: 794, height: LH_FOOTER_H },
+              type: 'png',
+              floating: {
+                horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, offset: 0 },
+                verticalPosition:   { relative: VerticalPositionRelativeFrom.PAGE,   offset: verticalOffset },
+                behindDocument: true,
+                wrap: { type: TextWrappingType.NONE }
+              }
+            })
+          ],
           spacing: { before: 0, after: 0 }
         })
       ]
@@ -2157,45 +2194,92 @@ function buildSubmissions() {
 // ROUTE TO CORRECT BUILDER
 // ─── ═══════════════════════════════════════════════════════════════════════ ──
 
-function buildDocumentChildren() {
+function buildDocumentChildren({ page1HeaderSpacerTwips = 0 } = {}) {
+  let kids;
   switch (d.doc_type) {
-    case 'demand_letter':  return buildDemandLetter();
-    case 'client_letter':  return buildClientLetter();
-    case 'plaint':         return buildPlaint();
-    case 'defence':        return buildDefence();
-    case 'notice_of_motion': return buildNoticeOfMotion();
-    case 'affidavit':      return buildAffidavit();
-    case 'affidavit_of_service': return buildAffidavitOfService();
-    case 'hearing_notice':       return buildHearingNotice();
-    case 'scc_claim':            return buildSCCClaim();
-    case 'scc_response':         return buildSCCResponse();
-    case 'submissions':          return buildSubmissions();
+    case 'demand_letter':  kids = buildDemandLetter(); break;
+    case 'client_letter':  kids = buildClientLetter(); break;
+    case 'plaint':         kids = buildPlaint(); break;
+    case 'defence':        kids = buildDefence(); break;
+    case 'notice_of_motion': kids = buildNoticeOfMotion(); break;
+    case 'affidavit':      kids = buildAffidavit(); break;
+    case 'affidavit_of_service': kids = buildAffidavitOfService(); break;
+    case 'hearing_notice':       kids = buildHearingNotice(); break;
+    case 'scc_claim':            kids = buildSCCClaim(); break;
+    case 'scc_response':         kids = buildSCCResponse(); break;
+    case 'submissions':          kids = buildSubmissions(); break;
     default:
       console.error(`Unknown doc_type: ${d.doc_type}`);
       process.exit(1);
   }
+  // Page-1 spacer: a single empty paragraph with EXACT line height equal to the
+  // gap between the section's top margin and the bottom of the page-1 header image.
+  // This consumes space only on page 1; page 2+ start at the natural top margin.
+  if (page1HeaderSpacerTwips > 0) {
+    kids = [
+      new Paragraph({
+        children: [],
+        spacing: { before: 0, after: 0, line: page1HeaderSpacerTwips, lineRule: LineRuleType.EXACT }
+      }),
+      ...kids
+    ];
+  }
+  return kids;
 }
 
 // ─── Assemble and write document ──────────────────────────────────────────────
 const isLetterhead = ['demand_letter', 'client_letter'].includes(d.doc_type);
+const usingImageLetterhead = isLetterhead && LH_MODE === 'image';
+
+// Margin strategy for image-mode letterhead:
+// • Top/bottom margins set to NORMAL values so pages 2+ don't show wasted whitespace.
+// • Page 1 only: the floating header image is in the section's `first` header,
+//   AND a leading spacer paragraph is pushed into buildDocumentChildren by the
+//   demand-letter builder (so it consumes space only on page 1, not on subsequent pages).
+// • Footer is identical on all pages (set both `default` and `first`).
+const headerImgTwips = LH_HEADER_H * 15; // px * 15 = twips at 96 DPI
+const footerImgTwips = LH_FOOTER_H * 15;
+
+// Page-1 spacer: header image extends from page edge (y=0) down to headerImgTwips.
+// We want body text to start ~80 twips (≈4pt) below image bottom. Body's natural
+// top is MARGIN_TOP (1440 twips). Spacer fills the gap.
+const TOP_GAP = 80;
+const page1HeaderSpacerTwips = Math.max(0, headerImgTwips - MARGIN_TOP + TOP_GAP);
+// Bottom: leave just enough room for the footer image plus a tiny gap.
+const bottomMarginTwips = footerImgTwips + 80;
 
 const section = {
   properties: {
     page: {
       size: { width: A4_W, height: A4_H },
       margin: {
-        top: (isLetterhead && LH_MODE === 'image') ? 360 : MARGIN_TOP,
-        right: MARGIN_SIDE,
-        bottom: MARGIN_BOTTOM,
-        left: MARGIN_SIDE
+        top:    MARGIN_TOP,
+        right:  MARGIN_SIDE,
+        bottom: usingImageLetterhead ? bottomMarginTwips : MARGIN_BOTTOM,
+        left:   MARGIN_SIDE,
+        header: 0,
+        footer: 0
       }
-    }
+    },
+    titlePage: usingImageLetterhead
   },
-  children: buildDocumentChildren()
+  children: buildDocumentChildren({ page1HeaderSpacerTwips: usingImageLetterhead ? page1HeaderSpacerTwips : 0 })
 };
 
 if (isLetterhead) {
-  section.footers = { default: buildLetterheadFooter() };
+  const footerObj = buildLetterheadFooter();
+  // Same footer on every page (page 1 + subsequent).
+  section.footers = { default: footerObj, first: footerObj };
+}
+if (usingImageLetterhead) {
+  const headerObj = buildLetterheadSectionHeader();
+  if (headerObj) {
+    // first = page 1 only (full letterhead). default = page 2+ (empty paragraph).
+    section.headers = {
+      first: headerObj,
+      default: new Header({ children: [new Paragraph({ children: [] })] })
+    };
+  }
 }
 
 const doc = new Document({

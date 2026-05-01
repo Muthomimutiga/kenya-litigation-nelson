@@ -22,7 +22,9 @@
   "firm_name_header_line1": "MABEYA & MANDELA LLP",
   "firm_name_header_line2": "ADVOCATES",
   "firm_monogram": "M&M",
-  "letterhead_mode": "generated",
-  "has_logo": false,
+  "letterhead_mode": "image",
+  "has_logo": true,
+  "lh_header_height": 173,
+  "lh_footer_height": 141,
   "commissioner_for_oaths": "ROBERT MABEYA MABERA"
 }
