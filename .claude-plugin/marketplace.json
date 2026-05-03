@@ -1,0 +1,13 @@
+{
+  "name": "nelson-kenya-litigation-plugins",
+  "owner": {
+    "name": "Mabeya & Mandela Advocates LLP"
+  },
+  "plugins": [
+    {
+      "name": "kenya-litigation",
+      "source": "./kenya-litigation",
+      "description": "Full litigation workflow automation for Kenyan practitioners \u2014 post-hearing processing, document drafting, service, filing guidance, and daily briefings."
+    }
+  ]
+}
